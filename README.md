@@ -10,6 +10,7 @@ The node runs the [TikTok Scraper](https://apify.com/scrapeunblocker/tiktok-scra
 [Credentials](#credentials)
 [Operations](#operations)
 [Output](#output)
+[Example workflow](#example-workflow)
 [Pricing](#pricing)
 [Compatibility](#compatibility)
 [Resources](#resources)
@@ -115,6 +116,44 @@ Example `video` item (shortened):
 }
 ```
 
+## Example workflow
+
+A typical use is a daily snapshot of a few creators: **Schedule Trigger** → **TikTok Scraper** (*Profile → Get*) → **Filter** (`type` is `video`) → a destination such as Google Sheets, Airtable or a database.
+
+To try the node in a minute, copy the workflow below, paste it into the n8n editor (Ctrl+V / Cmd+V), open the **TikTok Scraper** node, select your **Apify API** credential and click **Execute workflow**. It returns NASA's profile record and its 5 newest videos.
+
+```json
+{
+  "nodes": [
+    {
+      "parameters": {},
+      "name": "When clicking 'Execute workflow'",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "resource": "profile",
+        "operation": "get",
+        "profiles": "nasa",
+        "videosPerProfile": 5,
+        "options": {}
+      },
+      "name": "TikTok Scraper",
+      "type": "n8n-nodes-scrapeunblocker-tiktok.tikTokScraper",
+      "typeVersion": 1,
+      "position": [220, 0]
+    }
+  ],
+  "connections": {
+    "When clicking 'Execute workflow'": {
+      "main": [[{ "node": "TikTok Scraper", "type": "main", "index": 0 }]]
+    }
+  }
+}
+```
+
 ## Pricing
 
 The node itself is free. The Actor is paid per result on Apify: **$2 per 1,000 results** plus a tiny start fee per run ($0.00005), charged to the Apify account of your token. Every item the node returns counts as one result. The current price is always shown on the [Actor page](https://apify.com/scrapeunblocker/tiktok-scraper), and your spending is visible in Apify Console.
@@ -134,3 +173,4 @@ Tested with n8n 2.32 and 2.40 (self-hosted).
 
 - 0.1.0: Initial release - Profile, Video (Get, Search), Hashtag and Comment operations running the TikTok Scraper Actor on Apify
 - 0.1.1: First release published from GitHub Actions with an npm provenance statement
+- 0.1.2: Added an importable example workflow to the README
