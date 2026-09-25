@@ -1,0 +1,29 @@
+{
+	"node": "n8n-nodes-scrapeunblocker-tiktok.tikTokScraper",
+	"nodeVersion": "1.0",
+	"codexVersion": "1.0",
+	"categories": ["Marketing", "Data & Storage"],
+	"resources": {
+		"credentialDocumentation": [
+			{
+				"url": "https://github.com/ScrapeUnblocker/n8n-nodes-scrapeunblocker-tiktok#credentials"
+			}
+		],
+		"primaryDocumentation": [
+			{
+				"url": "https://github.com/ScrapeUnblocker/n8n-nodes-scrapeunblocker-tiktok#readme"
+			}
+		]
+	},
+	"alias": [
+		"tiktok",
+		"scraper",
+		"social media",
+		"influencer",
+		"hashtag",
+		"comments",
+		"videos",
+		"apify",
+		"scrapeunblocker"
+	]
+}
