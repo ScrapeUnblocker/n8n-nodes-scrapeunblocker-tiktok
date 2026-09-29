@@ -174,3 +174,4 @@ Tested with n8n 2.32 and 2.40 (self-hosted).
 - 0.1.0: Initial release - Profile, Video (Get, Search), Hashtag and Comment operations running the TikTok Scraper Actor on Apify
 - 0.1.1: First release published from GitHub Actions with an npm provenance statement
 - 0.1.2: Added an importable example workflow to the README
+- 0.1.3: Node category renamed to Marketing & Content, the name n8n's verification scanner accepts
