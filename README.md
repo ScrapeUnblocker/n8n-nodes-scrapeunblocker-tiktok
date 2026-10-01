@@ -73,8 +73,8 @@ Pick a **Resource** and an **Operation**. Each n8n input item starts one Apify r
 |---|---|---|
 | **Full Video Details** | Profile, Hashtag | On (default): every listed video carries exact plays, likes, comments, shares, saves, music and media URLs. Off: only ID, caption, cover, author and play count, and the run is faster. |
 | **Include Summary Records** | Profile, Hashtag | On (default): also return the `profile` / `hashtag` summary item next to the videos. Off: videos only. |
-| **Proxy Country** | All | Two-letter country code of the exit IP, e.g. `US`. Only needed for region-restricted posts; for keyword search it selects the country whose ranking is returned. |
-| **Timeout (Seconds)** | All | Maximum run time of the Apify run. `0` keeps the Actor default. A run that times out fails the node. |
+| **Browse From Country** | All | Two-letter code of the country TikTok is opened from, e.g. `US`. Only needed for posts that are available in some countries only; for keyword search it selects the country whose ranking is returned. |
+| **Timeout (Seconds)** | All | How long the Apify run may take, in seconds. `0` uses the Actor's default. If the time runs out, the node stops. |
 
 ### How a run works
 
@@ -88,11 +88,20 @@ Stopping the n8n execution only stops the node from waiting: the Apify run keeps
 
 ### Use as an AI Agent tool
 
-The node can be attached to an n8n **AI Agent** as a tool, so the agent can look up TikTok creators, videos, hashtags or comments on its own.
+The node can be attached to an n8n **AI Agent** as a tool, so the agent can look up TikTok creators, videos, hashtags or comments on its own. In the tool, the **Output** setting decides what the agent receives: **Simplified** (the fields listed under [Output](#output)), **Raw** (every field) or **Selected Fields** (the fields you pick, plus `type` and the ID), which keeps the agent's context small.
 
 ## Output
 
-Every item has a `type` field (`profile`, `video`, `photo`, `hashtag`, `comment` or `error`) plus `source` and `sourceInput` (what you entered), so mixed results are easy to filter with an **If** or **Filter** node.
+Every item has a `type` field (`profile`, `video`, `photo`, `hashtag`, `comment` or `error`), so mixed results are easy to filter with an **If** or **Filter** node.
+
+**Simplify** is on by default, so each item carries only its most useful fields (nested fields are flattened, e.g. `stats.followers` becomes `statsFollowers`):
+
+- **profile**: `type`, `username`, `nickname`, `verified`, `bio`, `statsFollowers`, `statsFollowing`, `statsLikes`, `statsVideos`, `profileUrl`
+- **video / photo**: `type`, `id`, `url`, `description`, `createdAt`, `authorUsername`, `statsPlays`, `statsLikes`, `statsComments`, `statsShares`
+- **hashtag**: `type`, `hashtag`, `id`, `url`, `statsViews`, `statsVideos`
+- **comment**: `type`, `id`, `text`, `likes`, `replyCount`, `createdAt`, `authorUsername`, `videoId`, `videoUrl`
+
+Turn **Simplify** off to get every field of the raw items, which also carry `source` and `sourceInput` (what you entered):
 
 - **profile**: `username`, `nickname`, `bio`, `bioLink`, `verified`, `privateAccount`, `region`, `language`, `createdAt`, avatar URLs, `stats` (`followers`, `following`, `likes`, `videos`, `friends`)
 - **video / photo**: `id`, `url`, `description`, `hashtags`, `mentions`, `language`, `createdAt`, `stats` (`plays`, `likes`, `comments`, `shares`, `saves`, `reposts`), `author` (with its own stats), `music`, `video` (duration, resolution, cover, play and download URLs, quality variants, subtitles), `images` for photo posts, `labels`, `flags`
@@ -100,7 +109,7 @@ Every item has a `type` field (`profile`, `video`, `photo`, `hashtag`, `comment`
 - **comment**: `text`, `createdAt`, `likes`, `replyCount`, `replies`, `author`, `isCreator`, `likedByCreator`, `videoId`, `videoUrl`, `totalComments`
 - **error**: a post or account that cannot be read (deleted, private, region-locked, not found), with TikTok's reason in `error`
 
-Example `video` item (shortened):
+Example raw `video` item (shortened):
 
 ```json
 {
@@ -175,3 +184,4 @@ Tested with n8n 2.32 and 2.40 (self-hosted).
 - 0.1.1: First release published from GitHub Actions with an npm provenance statement
 - 0.1.2: Added an importable example workflow to the README
 - 0.1.3: Node category renamed to Marketing & Content, the name n8n's verification scanner accepts
+- 0.1.4: Follows n8n's UX guidelines: a Simplify setting (Output for the AI tool), example placeholders, plainer descriptions and messages
