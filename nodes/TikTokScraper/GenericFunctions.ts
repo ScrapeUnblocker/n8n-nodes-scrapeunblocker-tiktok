@@ -16,6 +16,22 @@ const MIN_POLL_INTERVAL_MS = 2000;
 const DATASET_PAGE_SIZE = 1000;
 const TERMINAL_STATUSES = ['SUCCEEDED', 'FAILED', 'TIMED-OUT', 'ABORTED'];
 
+// What happened and how to get unstuck, per Apify run status (n8n UX guidelines, "Errors").
+const STOPPED_RUN_TEXT: Record<string, { message: string; hint: string }> = {
+	FAILED: {
+		message: 'The Apify run stopped before it finished',
+		hint: "Open the run log to see why, check the node's fields and run the node again",
+	},
+	'TIMED-OUT': {
+		message: 'The Apify run ran out of time',
+		hint: "Raise 'Timeout (Seconds)' in Options or ask for fewer results, then run the node again",
+	},
+	ABORTED: {
+		message: 'The Apify run was aborted',
+		hint: 'It was stopped in Apify Console or through the Apify API. Run the node again to start a new run',
+	},
+};
+
 export interface ApifyRequest {
 	method: IHttpRequestMethods;
 	endpoint: string;
@@ -37,6 +53,15 @@ export interface ActorRunOptions {
 export interface ActorRunResult {
 	run: IDataObject;
 	items: IDataObject[];
+}
+
+export interface OutputShape {
+	/** Fields kept by Simplify; dot paths are flattened (`seller.username` -> `sellerUsername`). */
+	simplified?: string[];
+	/** Simplify fields per item `type`, for operations that return several kinds of items. */
+	byType?: Record<string, string[]>;
+	/** Always returned with Selected Fields when the item has them. */
+	idFields?: string[];
 }
 
 /**
@@ -79,6 +104,93 @@ export async function apifyApiRequest(
 export function parseList(value: unknown, separator: RegExp = /[\n,]+/): string[] {
 	const parts = Array.isArray(value) ? value.map(String) : String(value ?? '').split(separator);
 	return parts.map((part) => part.trim()).filter((part) => part !== '');
+}
+
+export type OptionKind = 'value' | 'list' | 'newlineList' | 'upper' | 'nonZero';
+
+export interface OptionField {
+	key: string;
+	kind?: OptionKind;
+}
+
+const NEWLINE_SEPARATOR = /\n+/;
+
+/**
+ * Reads a required text parameter and fails the item with a clear message when it is empty.
+ */
+export function requireString(
+	this: IExecuteFunctions,
+	parameterName: string,
+	displayName: string,
+	itemIndex: number,
+): string {
+	const value = String(this.getNodeParameter(parameterName, itemIndex) ?? '').trim();
+	if (value === '') {
+		throw new NodeOperationError(this.getNode(), `Enter a value for '${displayName}'`, {
+			itemIndex,
+		});
+	}
+	return value;
+}
+
+/**
+ * Reads a required list parameter (text or array) and fails the item when it has no entries.
+ */
+export function requireList(
+	this: IExecuteFunctions,
+	parameterName: string,
+	displayName: string,
+	itemIndex: number,
+	newlineOnly = false,
+): string[] {
+	const list = parseList(
+		this.getNodeParameter(parameterName, itemIndex),
+		newlineOnly ? NEWLINE_SEPARATOR : undefined,
+	);
+	if (list.length === 0) {
+		throw new NodeOperationError(this.getNode(), `Enter at least one value for '${displayName}'`, {
+			itemIndex,
+		});
+	}
+	return list;
+}
+
+/**
+ * Copies the options the user added to the Actor input under the Actor's own input keys.
+ * Empty values are skipped, so the Actor falls back to its defaults for them.
+ */
+export function applyOptions(
+	input: IDataObject,
+	options: IDataObject,
+	fields: Record<string, OptionField>,
+): void {
+	for (const [name, value] of Object.entries(options)) {
+		const field = fields[name];
+		if (!field || value === undefined || value === null || value === '') {
+			continue;
+		}
+		switch (field.kind) {
+			case 'list':
+			case 'newlineList': {
+				const list = parseList(value, field.kind === 'newlineList' ? NEWLINE_SEPARATOR : undefined);
+				if (list.length > 0) {
+					input[field.key] = list;
+				}
+				break;
+			}
+			case 'upper':
+				input[field.key] = String(value).trim().toUpperCase();
+				break;
+			case 'nonZero':
+				// 0 means "no limit" in the node, so the Actor gets no value at all.
+				if (Number(value) !== 0) {
+					input[field.key] = value;
+				}
+				break;
+			default:
+				input[field.key] = typeof value === 'string' ? value.trim() : value;
+		}
+	}
 }
 
 async function getDatasetItems(
@@ -184,12 +296,76 @@ export async function runActorAndGetItems(
 			run.defaultDatasetId as string,
 			integrationAppId,
 		);
-		throw new NodeOperationError(this.getNode(), `Actor run ${String(run.status)}${reason}`, {
+		const text = STOPPED_RUN_TEXT[run.status as string] ?? STOPPED_RUN_TEXT.FAILED;
+		throw new NodeOperationError(this.getNode(), `${text.message}${reason}`, {
 			itemIndex,
-			description: `See the run log in Apify Console: ${runUrl}.${savedResults}`,
+			description: `${text.hint}. Run log: ${runUrl}.${savedResults}`,
 		});
 	}
 
 	const items = await getDatasetItems.call(this, run.defaultDatasetId as string, integrationAppId);
 	return { run, items };
+}
+
+function simplifiedKey(path: string): string {
+	const [first, ...rest] = path.split('.');
+	return first + rest.map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+}
+
+function valueAt(item: IDataObject, path: string): unknown {
+	let value: unknown = item;
+	for (const key of path.split('.')) {
+		if (value === null || typeof value !== 'object') {
+			return undefined;
+		}
+		value = (value as IDataObject)[key];
+	}
+	return value;
+}
+
+/**
+ * Applies the output setting to the results: the regular node shows 'Simplify', the AI tool
+ * shows 'Output' (Simplified, Raw or Selected Fields), as the n8n UX guidelines ask for items
+ * with more than 10 fields. Operations without a shape return their items unchanged.
+ */
+export function shapeItems(
+	this: IExecuteFunctions,
+	items: IDataObject[],
+	shape: OutputShape | undefined,
+	itemIndex: number,
+): IDataObject[] {
+	if (!shape) {
+		return items;
+	}
+	const output = this.getNodeParameter('output', itemIndex, '') as string;
+	const simplify = this.getNodeParameter('simplify', itemIndex, true) as boolean;
+	const mode = output || (simplify ? 'simple' : 'raw');
+	if (mode === 'raw') {
+		return items;
+	}
+	if (mode === 'fields') {
+		const selected = this.getNodeParameter('fields', itemIndex, []) as string[];
+		const keep = [...(shape.idFields ?? []), ...selected];
+		return items.map((item) => {
+			const picked: IDataObject = {};
+			for (const key of keep) {
+				if (key in item) {
+					picked[key] = item[key];
+				}
+			}
+			return picked;
+		});
+	}
+	return items.map((item) => {
+		const paths = shape.byType ? shape.byType[String(item.type)] : shape.simplified;
+		if (!paths) {
+			return item; // a kind of item without a simplified form, e.g. an error record
+		}
+		const simplified: IDataObject = {};
+		for (const path of paths) {
+			const value = valueAt(item, path);
+			simplified[simplifiedKey(path)] = value === undefined ? null : (value as IDataObject[string]);
+		}
+		return simplified;
+	});
 }
